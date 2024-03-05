@@ -1,0 +1,146 @@
+install.packages("remotes")
+library(remotes)
+
+# install GitHub version of vosonSML 0.32.10 
+install_github("vosonlab/vosonSML")
+
+# install GitHub version of rtweet 1.1.0.9001
+install_github("ropensci/rtweet")
+
+
+# Load packages required for this session into library
+
+library(vosonSML)
+library(magrittr)
+library(igraph)
+library(tidyr)
+library(tidytext)
+library(stopwords)
+
+
+# Set up Twitter authentication variables
+
+my_app_name <- "BDACourse_7230"
+my_api_key <- "GUT6GGsfwiNUppw57ebF1F4NY"
+my_api_secret <- "JPRUynUXmjrcwjdgrq5o0BCzazNJRioy1xDMfKhLJ4u4mhEKuC"
+
+my_access_token <- "1633143194090344448-yUHbRCoPB0zyRaLYejnIOIo6gayNuL"
+my_access_token_secret <- "Yv939ZaBahklcL92OH0oNT3MEiA2nZpJdE65Y3Dzt2h5w"
+
+
+# Authenticate to Twitter and collect data
+
+twitter_data <- Authenticate("twitter",
+                             appName = my_app_name,
+                             apiKey = my_api_key,
+                             apiSecret = my_api_secret,
+                             accessToken = my_access_token,
+                             accessTokenSecret = my_access_token_secret) %>%
+  Collect(searchTerm = "#selenagomez OR #selenamusic OR #selena OR #jelena OR #selenaFanclub",
+          searchType = "recent",
+          numTweets = 1500,
+          lang = "en",
+          includeRetweets = TRUE,
+          writeToFile = TRUE,
+          verbose = TRUE) # use 'verbose' to show download progress
+
+
+# View collected Twitter data
+
+View(twitter_data$tweets)
+
+
+# ----------
+# Create actor network and graph from the data
+
+twitter_actor_network <- twitter_data %>% Create("actor")
+twitter_actor_graph <- twitter_actor_network %>% Graph()
+
+
+# Write graph to file
+# Make sure to set your working directory to where you want to save the file
+# before you execute the next line
+
+write.graph(twitter_actor_graph, file = "TwitterActor.graphml", format = "graphml")
+
+
+# Run Page Rank algorithm to find important users
+
+rank_twitter_actor <- sort(page_rank(twitter_actor_graph)$vector, decreasing=TRUE)
+head(rank_twitter_actor, n=5)
+
+
+# Overwrite the 'name' attribute in your graph with the 'screen name' attribute
+# to replace twitter IDs with more meaningful names,
+# then run the Page Rank algorithm again
+
+V(twitter_actor_graph)$name <- V(twitter_actor_graph)$screen_name
+
+rank_twitter_actor <- sort(page_rank(twitter_actor_graph)$vector, decreasing = TRUE)
+head(rank_twitter_actor, n = 5)
+
+---------
+  library(rtweet)
+  # Store top 5 influencers in a variable
+  influencers <- names(head(rank_twitter_actor, n = 5))
+
+# Get user data for each influencer
+user_data <- lapply(influencers, function(x) get_user(x))
+
+# Extract interests and characteristics
+user_info <- lapply(user_data, function(x) {
+  data.frame(user = x$screen_name, 
+             interests = x$description, 
+             followers = x$followers_count,
+             friends = x$friends_count)
+})
+
+# Combine the data frames and examine the interests and characteristics of the top 5 users
+user_info <- do.call(rbind, user_info)
+top_5_influencers <- user_info %>% 
+  arrange(desc(followers)) %>% 
+  head(5)
+
+top_5_influencers
+
+# ----------
+# Create semantic network and graph from the data
+
+twitter_semantic_network <- twitter_data %>% Create("semantic")
+twitter_semantic_graph <- twitter_semantic_network %>% Graph()
+
+
+# Write graph to file
+
+write.graph(twitter_semantic_graph, file = "TwitterSemantic.graphml", format = "graphml")
+
+
+# Run Page Rank algorithm to find important terms/hashtags
+
+rank_twitter_semantic <- sort(page_rank(twitter_semantic_graph)$vector, decreasing = TRUE)
+head(rank_twitter_semantic, n = 10)
+
+
+# Create the network and graph again, but this time: 
+# - with 25% of the most frequent terms (before was the default of 5%)
+# - with 75% of the most frequent hashtags (before was the default of 50%)
+# - removing the actual search term ("#auspol")
+
+tw_sem_nw_more_terms <- twitter_data %>%
+  Create("semantic",
+         termFreq = 25,
+         hashtagFreq = 75,
+         removeTermsOrHashtags = c("#selenagomez"))
+
+tw_sem_graph_more_terms <- tw_sem_nw_more_terms %>% Graph()
+
+
+# Write graph to file
+
+write.graph(tw_sem_graph_more_terms, 
+            file = "TwitterSemanticMoreTerms.graphml",
+            format = "graphml")
+
+# Count the number of unique users
+unique_users <- V(twitter_actor_graph)$name
+length(unique_users)
